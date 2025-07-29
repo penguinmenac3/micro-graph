@@ -1,0 +1,19 @@
+[project]
+name = "micro-graph"
+version = "0.0.1"
+license = "MIT"
+readme = "README.md"
+description = "A simple library to build compute graphs for logical flows like agents."
+keywords = ["ai", "graph", "low-code"]
+authors = [{ name = "Michael Fuerst" }]
+maintainers = [
+    { name = "Michael Fuerst" },
+]
+requires-python = ">=3.10"
+dependencies = []
+[project.optional-dependencies]
+dev = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

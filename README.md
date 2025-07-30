@@ -14,7 +14,7 @@ pip install micro-graph
 
 ## 👨‍💻 Usage
 
-See the example.py.
+See the testcases, e.g. [test_simple.py](./tests/test_simple.py).
 
 ## 👥 Contributing
 

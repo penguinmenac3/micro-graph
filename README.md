@@ -10,11 +10,14 @@ It does not need any dependencies.
 
 ```bash
 pip install micro-graph
+
+# to also install `micro_graph.ai` dependencies
+pip install micro-graph[ai]
 ```
 
 ## 👨‍💻 Usage
 
-See the testcases, e.g. [test_simple.py](./tests/test_simple.py).
+See the testcases for example uses, e.g. [test_simple.py](./tests/test_simple.py).
 
 ## 👥 Contributing
 

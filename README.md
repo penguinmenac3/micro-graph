@@ -28,6 +28,17 @@ Please keep this in mind if you modify this repo.
 
 Keep it simple!
 
+### Setup
+
+Install dev dependencies and pre-commit hooks
+
+```bash
+pip install -e .[dev,ai]
+pre-commit install
+```
+
+This will automatically run `ruff check .` and `pytest` before each commit.
+
 ## ⚖️ License
 
 Micro-Graph is licensed under the permissive MIT license -- see [LICENSE](LICENSE) for details.

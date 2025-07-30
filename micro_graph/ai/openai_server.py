@@ -1,6 +1,7 @@
 from time import time
 from uuid import uuid4
 import json
+import logging
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -15,6 +16,13 @@ from micro_graph.ai.llm import LLMAPI
 
 def create_app(llm: LLMAPI, debug=False) -> FastAPI:
     app = FastAPI(title="OpenAI Server")
+
+    # Set up logging
+    logger = logging.getLogger("openai_server")
+    if debug:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
 
     # Add CORS middleware
     origins = [
@@ -41,16 +49,16 @@ def create_app(llm: LLMAPI, debug=False) -> FastAPI:
                 "choices": [{"delta": {"content": token, "role": "assistant"}}],
             }
             if debug:
-                print(f"CHUNK: {json.dumps(chunk)}")
+                logger.debug(f"CHUNK: {json.dumps(chunk)}")
             yield f"data: {json.dumps(chunk)}\n\n"
         if debug:
-            print("CHUNK: [DONE]")
+            logger.debug("CHUNK: [DONE]")
         yield "data: [DONE]\n\n"
 
     @app.post("/chat/completions")
     def chat_completions(request: ChatCompletionRequest):
         if debug:
-            print(f"REQUEST: {request}")
+            logger.debug(f"REQUEST: {request}")
         reason = "stop"
         try:
             response = llm.chat(**request.dict())
@@ -79,7 +87,7 @@ def create_app(llm: LLMAPI, debug=False) -> FastAPI:
             ],
         }
         if debug:
-            print(f"RESPONSE: {json.dumps(response_obj)}")
+            logger.debug(f"RESPONSE: {response_obj}")
         return response_obj
 
     @app.get("/models")
@@ -98,14 +106,14 @@ def create_app(llm: LLMAPI, debug=False) -> FastAPI:
             "object": "list",
         }
         if debug:
-            print(f"RESPONSE: {json.dumps(response)}")
+            logger.debug(f"RESPONSE: {response}")
         return response
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
         exc_str = f"{exc}".replace("\n", " ").replace("   ", " ")
-        print(await request.json())
-        print(exc_str)
+        logger.error(await request.json())
+        logger.error(exc_str)
         content = {"status_code": 10422, "message": exc_str, "data": None}
         return JSONResponse(content=content, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
 

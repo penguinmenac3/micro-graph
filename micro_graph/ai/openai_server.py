@@ -103,7 +103,6 @@ def create_app(llm: LLMAPI, debug=False) -> FastAPI:
                 }
                 for model in llm.get_models()
             ],
-            "object": "list",
         }
         if debug:
             logger.debug(f"RESPONSE: {response}")

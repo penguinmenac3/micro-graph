@@ -1,1 +1,1 @@
-from micro_graph.micro_graph import Node, ParalellNode, NodeResult
+from micro_graph.micro_graph import Node, NodeResult, GraphResult, RunFunction

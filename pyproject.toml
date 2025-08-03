@@ -1,6 +1,6 @@
 [project]
 name = "micro-graph"
-version = "0.2.0"
+version = "0.3.0"
 license = "MIT"
 readme = "README.md"
 description = "A simple library to build compute graphs for logical flows like agents."

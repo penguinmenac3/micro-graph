@@ -17,7 +17,7 @@ pip install micro-graph[ai]
 
 ## 👨‍💻 Usage
 
-See the testcases for example uses, e.g. [test_simple.py](./tests/test_simple.py).
+See the [examples](examples) or [tests](tests) for example uses.
 
 ## 👥 Contributing
 

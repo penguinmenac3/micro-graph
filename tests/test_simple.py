@@ -1,13 +1,15 @@
 import pytest
-from micro_graph import Node, NodeResult
+from micro_graph import Node, NodeResult, OutputWriter
 
 
 @pytest.fixture
 def graph() -> Node:
-    async def hello_world(shared: dict, **kwargs) -> NodeResult:
+    async def hello_world(output: OutputWriter, shared: dict, **kwargs) -> NodeResult:
         return {"message": "Hello World!"}
 
-    async def loop(shared: dict, iter: int = 0, **kwargs) -> NodeResult:
+    async def loop(
+        output: OutputWriter, shared: dict, iter: int = 0, **kwargs
+    ) -> NodeResult:
         if iter < 5:
             return "default", {"iter": iter + 1}
         else:
@@ -19,13 +21,18 @@ def graph() -> Node:
     return loop_node
 
 
+@pytest.fixture
+def output() -> OutputWriter:
+    return OutputWriter()
+
+
 @pytest.mark.asyncio
-async def test_node_only(graph):
-    node_only_result = await graph({}, only_this_node=True)
+async def test_node_only(graph, output):
+    node_only_result = await graph(output, {}, only_this_node=True)
     assert node_only_result == {'iter': 1}, f"Expected '{{'iter': 1}}', got {node_only_result}"
 
 
 @pytest.mark.asyncio
-async def test_full_execution(graph):
-    result_full = await graph({})
+async def test_full_execution(graph, output):
+    result_full = await graph(output, {})
     assert result_full == {"message": "Hello World!"}, f"Expected Hello World message, got {result_full}"

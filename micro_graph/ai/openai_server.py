@@ -1,5 +1,7 @@
+from typing import Callable, Awaitable
 from time import time
 from uuid import uuid4
+import asyncio
 import json
 import logging
 
@@ -11,10 +13,13 @@ from starlette.responses import StreamingResponse
 import uvicorn
 
 from micro_graph.ai.types import ChatMessage, ChatCompletionRequest
-from micro_graph.ai.llm import LLMAPI
+from micro_graph.output_writer import OutputWriter
 
 
-def create_app(llm: LLMAPI, debug=False) -> FastAPI:
+Graph = Callable[[OutputWriter, list[ChatMessage], int], Awaitable[None]]
+
+
+def create_app(graphs: dict[str, Graph], debug=False) -> FastAPI:
     app = FastAPI(title="OpenAI Server")
 
     # Set up logging
@@ -39,8 +44,9 @@ def create_app(llm: LLMAPI, debug=False) -> FastAPI:
         allow_credentials=True,
     )
 
-    def _wrap_chat_generator(stream, model):
-        for i, token in enumerate(stream):
+    async def _wrap_chat_generator(stream, model):
+        i = 0
+        async for token in stream:
             chunk = {
                 "id": i,
                 "object": "chat.completion.chunk",
@@ -48,6 +54,7 @@ def create_app(llm: LLMAPI, debug=False) -> FastAPI:
                 "model": model,
                 "choices": [{"delta": {"content": token, "role": "assistant"}}],
             }
+            i += 1
             if debug:
                 logger.debug(f"CHUNK: {json.dumps(chunk)}")
             yield f"data: {json.dumps(chunk)}\n\n"
@@ -56,12 +63,30 @@ def create_app(llm: LLMAPI, debug=False) -> FastAPI:
         yield "data: [DONE]\n\n"
 
     @app.post("/chat/completions")
-    def chat_completions(request: ChatCompletionRequest):
+    async def chat_completions(request: ChatCompletionRequest):
         if debug:
             logger.debug(f"REQUEST: {request}")
         reason = "stop"
         try:
-            response = llm.chat(**request.dict())
+
+            async def generator():
+                queue = asyncio.Queue()
+                output: OutputWriter = OutputWriter(queue=queue)
+
+                # Run the graph in a background task
+                async def run_graph():
+                    await graphs[request.model](output, request.messages, request.max_tokens or -1)
+                    await queue.put(None)  # Sentinel to signal completion
+
+                asyncio.create_task(run_graph())
+
+                while True:
+                    chunk: str | None = await queue.get()
+                    if chunk is None:
+                        break
+                    yield chunk
+
+            response = generator()
         except RuntimeError as e:
             response = str(e)
             reason = "error"
@@ -73,7 +98,11 @@ def create_app(llm: LLMAPI, debug=False) -> FastAPI:
                 media_type="text/event-stream",
             )
         if not isinstance(response, str):
-            response = "".join(response)
+            response_str: str = ""
+            async for chunk in response:
+                response_str += chunk
+        else:
+            response_str = response
         response_obj = {
             "id": str(uuid4()),
             "object": "chat.completion",
@@ -82,7 +111,7 @@ def create_app(llm: LLMAPI, debug=False) -> FastAPI:
             "choices": [
                 {
                     "finish_reason": reason,
-                    "message": ChatMessage(role="assistant", content=response),
+                    "message": ChatMessage(role="assistant", content=response_str),
                 }
             ],
         }
@@ -99,9 +128,9 @@ def create_app(llm: LLMAPI, debug=False) -> FastAPI:
                     "id": model,
                     "object": "model",
                     "created": time(),
-                    "owned_by": "quack-norris",
+                    "owned_by": "micro-graph",
                 }
-                for model in llm.get_models()
+                for model in graphs.keys()
             ],
         }
         if debug:
@@ -119,6 +148,6 @@ def create_app(llm: LLMAPI, debug=False) -> FastAPI:
     return app
 
 
-def serve(llm: LLMAPI, host: str = "localhost", port: int = 8000, debug=False):
-    app = create_app(llm, debug=debug)
+def serve(graphs: dict[str, Graph], host: str = "localhost", port: int = 8000, debug=False):
+    app = create_app(graphs, debug=debug)
     uvicorn.run(app, host=host, port=port)

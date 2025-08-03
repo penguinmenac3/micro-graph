@@ -1,11 +1,10 @@
-import asyncio
 import dotenv
 import os
-import sys
 from micro_graph import Node, OutputWriter
-from micro_graph.io.cli_input import ConsoleInputNode
 from micro_graph.ai.llm_generation import LLMGenerateNode
 from micro_graph.ai.llm import LLM
+from micro_graph.ai.openai_server import serve
+from micro_graph.ai.types import ChatMessage
 from micro_graph.ai.automatic_refinement_feedback_loop import automatic_refinement_feedback_loop
 
 PLANNER = """Think carefully about the tasks required to fulfill the user's request.
@@ -95,7 +94,9 @@ Prior Feedback:
 
 
 def planner_agent(llm: LLM, model: str, max_iterations: int = 5) -> Node:
-    planner = LLMGenerateNode(llm=llm, model=model, prompt_template=PLANNER, field="plan", shared=True, output="thought")
+    planner = LLMGenerateNode(
+        llm=llm, model=model, prompt_template=PLANNER, field="plan", shared=True
+    )
     plan = automatic_refinement_feedback_loop(
         node=planner,
         llm=llm,
@@ -106,37 +107,49 @@ def planner_agent(llm: LLM, model: str, max_iterations: int = 5) -> Node:
     return plan
 
 
-async def main():
-    shared = {
-        "query": "",
-        "plan": "",
-    }
-
-    # LLM connection
+def get_llm_and_model() -> tuple[LLM, str]:
     llm = LLM(
         api_endpoint=os.environ.get("API_ENDPOINT", "http://localhost:11434"),
         api_key=os.environ.get("API_KEY", "ollama"),
         provider=os.environ.get("PROVIDER", "ollama"),
-        model=os.environ.get("MODEL", "AUTODETECT")
+        model=os.environ.get("MODEL", "AUTODETECT"),
     )
     model = os.environ.get("MODEL", "gemma3:12b")
+    return llm, model
 
-    # Create nodes for PRD generation
-    if len(sys.argv) > 2:
-        query_text = sys.argv[2:]
-        shared["query"] = " ".join(query_text)
-        query = Node()
-    else:
-        query = ConsoleInputNode(question="Query", field="query", shared=True)
-    
+
+def _get_query(chat_messages: list[ChatMessage]) -> str:
+    query: str = ""
+    i = 1
+    while query == "" and i <= len(chat_messages):
+        content = chat_messages[-i].content
+        if isinstance(content, str):
+            query = content
+        else:
+            for c in content:
+                if c.type == "text":
+                    query = c.text or ""
+        i += 1
+    return query
+
+
+async def run_planner(output: OutputWriter, chat_messages: list[ChatMessage], max_tokens: int):
+    llm, model = get_llm_and_model()
     plan = planner_agent(llm, model=model, max_iterations=3)
-    query.then(plan)
+    shared = {
+        "query": "",
+        "plan": "",
+    }
+    query = _get_query(chat_messages)
+    print(query)
+    await plan(
+        output,
+        shared=shared,
+        query=query,
+    )
+    output.default(shared["plan"])
 
-    # Run the flow starting with get_idea
-    output = OutputWriter()
-    await query(output, shared)
-    print(shared["plan"])
 
 if __name__ == "__main__":
     dotenv.load_dotenv()
-    asyncio.run(main())
+    serve({"planner": run_planner})

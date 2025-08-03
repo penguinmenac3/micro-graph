@@ -4,7 +4,7 @@ from asyncio import Queue
 class OutputWriter:
     def __init__(self, queue: Queue | None = None):
         self._state = "default"
-        self._topic = ""
+        self._topic = "default"
         self._queue = queue
 
     def thought(self, text: str, end="\n\n") -> None:

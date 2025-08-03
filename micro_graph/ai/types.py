@@ -1,6 +1,10 @@
-from typing import NamedTuple, List, Optional
-
+from typing import NamedTuple, List, Optional, Callable, Awaitable
 from pydantic import BaseModel
+
+from micro_graph.output_writer import OutputWriter
+
+
+Agent = Callable[[OutputWriter, str, str], Awaitable[str | None]]
 
 
 class ToolInfo(NamedTuple):

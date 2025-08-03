@@ -1,40 +1,9 @@
-import dotenv
 from micro_graph import Node, OutputWriter
 from micro_graph.ai.llm_generation import LLMGenerateNode
-from micro_graph.ai.llm import LLM, get_llm_and_model_from_env
-from micro_graph.ai.openai_server import serve
-from micro_graph.ai.types import ChatMessage
+from micro_graph.ai.llm import LLM
+from micro_graph.ai.types import Agent
 from micro_graph.ai.automatic_refinement_feedback_loop import automatic_refinement_feedback_loop
 
-QUERY_EXTRACTOR = """You are an expert at extracting the most recent user query from a chat history.
-* Your output should be a clear, specific, and standalone question or request.
-* If the latest message refers to previous messages, incorporate the necessary context so the query makes sense on its own.
-
----
-## Example Output:
-
-What is the weather like in New York today?
-"""
-
-CONTEXT_EXTRACTOR = """You are an expert at extracting context for user queries.
-Typically user queries do not exist in a vacuum in a chat history.
-From the given chat history extract the context information that is needed to process the task.
-
-If the query states to improve or change something, extract that thing.
-
----
-Example:
-
-Query: "Make the text more concise."
-Your task: Find the text that is referenced and extract it and return it.
-
-Output:
-It is with a careful observation and a desire to fully understand, that I feel compelled
-to elaborate upon the rather complex phenomenon of noticing a vibrant shade of blue.
-
----
-User Query: {query}
-"""
 
 PLANNER = """Think carefully about the tasks required to fulfill the user's request.
 Create a task list in markdown format that outlines the necessary steps.
@@ -59,7 +28,7 @@ Query:
 ```
 
 ---
-Current Plan (or empty):
+Previous Plan / Context:
 ```
 {plan}
 ```
@@ -122,7 +91,7 @@ Prior Feedback:
 """
 
 
-def planner_agent(llm: LLM, model: str, max_iterations: int = 5) -> Node:
+def planner_agent(llm: LLM, model: str, max_iterations: int = 5) -> tuple[Agent, Node]:
     planner = LLMGenerateNode(
         llm=llm, model=model, prompt_template=PLANNER, field="plan", shared=True
     )
@@ -133,59 +102,10 @@ def planner_agent(llm: LLM, model: str, max_iterations: int = 5) -> Node:
         feedback_template=PLANNING_FEEDBACK,
         max_iterations=max_iterations,
     )
-    return plan
 
+    async def agent(output: OutputWriter, query: str, context: str):
+        shared = {}
+        await plan(output, shared=shared, query=query, plan=context)
+        return shared["plan"]
 
-def _get_query(chat_messages: list[ChatMessage]) -> str:
-    query: str = ""
-    i = 1
-    while query == "" and i <= len(chat_messages):
-        content = chat_messages[-i].content
-        if isinstance(content, str):
-            query = content
-        else:
-            for c in content:
-                if c.type == "text":
-                    query = c.text or ""
-        i += 1
-    return query
-
-
-def main():
-    dotenv.load_dotenv()
-    llm, model = get_llm_and_model_from_env()
-    plan = planner_agent(llm, model=model, max_iterations=3)
-
-    async def run_planner(
-        output: OutputWriter, chat_messages: list[ChatMessage], max_tokens: int
-    ):
-        shared = {
-            "query": "",
-            "plan": "",
-        }
-        print(chat_messages)
-        output.thought("Extracting query")
-        query: str = llm.chat(
-            model,
-            chat_messages[-3:] + [ChatMessage(role="user", content=QUERY_EXTRACTOR)],
-            max_tokens=max_tokens,
-        )
-        print(query)
-        output.thought(f"Query:\n```\n{query}\n```\n")
-        output.thought("Extracting context")
-        context: str = llm.chat(
-            model,
-            chat_messages[-3:]
-            + [ChatMessage(role="user", content=CONTEXT_EXTRACTOR.format(query=query))],
-            max_tokens=max_tokens,
-        )
-        print(context)
-        shared["plan"] = context
-        await plan(output, shared=shared, query=query)
-        output.default(shared["plan"])
-
-    serve({"planner": run_planner})
-
-
-if __name__ == "__main__":
-    main()
+    return agent, plan

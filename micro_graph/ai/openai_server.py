@@ -1,3 +1,4 @@
+from micro_graph.ai.llm import LLMAPI
 from typing import Callable, Awaitable
 from time import time
 from uuid import uuid4
@@ -12,14 +13,45 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import StreamingResponse
 import uvicorn
 
-from micro_graph.ai.types import ChatMessage, ChatCompletionRequest
+from micro_graph.ai.types import ChatMessage, ChatCompletionRequest, Agent
 from micro_graph.output_writer import OutputWriter
 
 
-Graph = Callable[[OutputWriter, list[ChatMessage], int], Awaitable[None]]
+QUERY_EXTRACTOR = """You are an expert at extracting the most recent user query from a chat.
+* Your output should be a clear, specific, and standalone question or request.
+* If the latest message refers to previous messages, incorporate the necessary context so the query makes sense on its own.
+
+---
+## Example Output:
+
+What is the weather like in New York today?
+"""
+
+CONTEXT_EXTRACTOR = """You are an expert at extracting context for user queries.
+Typically user queries do not exist in a vacuum in a chat history.
+From the given chat history extract the context information that is needed to process the task.
+
+If the query states to improve or change something, extract that thing.
+
+---
+Example:
+
+Query: "Make the text more concise."
+Your task: Find the text that is referenced and extract it and return it.
+
+Output:
+It is with a careful observation and a desire to fully understand, that I feel compelled
+to elaborate upon the rather complex phenomenon of noticing a vibrant shade of blue.
+
+---
+User Query: {query}
+"""
 
 
-def create_app(graphs: dict[str, Graph], debug=False) -> FastAPI:
+ChatAgent = Callable[[OutputWriter, list[ChatMessage], int], Awaitable[None]]
+
+
+def create_app(chat_agents: dict[str, ChatAgent], debug=False) -> FastAPI:
     app = FastAPI(title="OpenAI Server")
 
     # Set up logging
@@ -75,7 +107,9 @@ def create_app(graphs: dict[str, Graph], debug=False) -> FastAPI:
 
                 # Run the graph in a background task
                 async def run_graph():
-                    await graphs[request.model](output, request.messages, request.max_tokens or -1)
+                    await chat_agents[request.model](
+                        output, request.messages, request.max_tokens or -1
+                    )
                     await queue.put(None)  # Sentinel to signal completion
 
                 asyncio.create_task(run_graph())
@@ -130,7 +164,7 @@ def create_app(graphs: dict[str, Graph], debug=False) -> FastAPI:
                     "created": time(),
                     "owned_by": "micro-graph",
                 }
-                for model in graphs.keys()
+                for model in chat_agents.keys()
             ],
         }
         if debug:
@@ -148,6 +182,42 @@ def create_app(graphs: dict[str, Graph], debug=False) -> FastAPI:
     return app
 
 
-def serve(graphs: dict[str, Graph], host: str = "localhost", port: int = 8000, debug=False):
-    app = create_app(graphs, debug=debug)
+def wrap_agent(
+    llm: LLMAPI,
+    model: str,
+    agent: Agent,
+) -> ChatAgent:
+    async def chat_agent(
+        output: OutputWriter, chat_messages: list[ChatMessage], max_tokens: int
+    ):
+        output.thought("Extracting query")
+        query: str = llm.chat(
+            model,
+            chat_messages[-3:] + [ChatMessage(role="user", content=QUERY_EXTRACTOR)],
+            max_tokens=max_tokens,
+        )
+        output.thought(f"Query:\n```\n{query}\n```\n")
+        context = ""
+        if len(chat_messages) > 2:
+            output.thought("Extracting context")
+            prompt = CONTEXT_EXTRACTOR.format(query=query)
+            context: str = llm.chat(
+                model,
+                chat_messages[-3:] + [ChatMessage(role="user", content=prompt)],
+                max_tokens=max_tokens,
+            )
+        result = await agent(output, query, context)
+        if result is not None and result != "":
+            output.default(result)
+
+    return chat_agent
+
+
+def serve(
+    chat_agents: dict[str, ChatAgent],
+    host: str = "localhost",
+    port: int = 8000,
+    debug=False,
+):
+    app = create_app(chat_agents, debug=debug)
     uvicorn.run(app, host=host, port=port)

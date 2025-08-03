@@ -1,5 +1,6 @@
 from typing import Generator, List
 import requests
+import os
 import openai
 from openai import AzureOpenAI as _AzureAPI
 from openai import OpenAI as _OpenAIAPI
@@ -70,3 +71,14 @@ class LLM(LLMAPI):
     def _stream_wrapper(stream):
         for chunk in stream:
             yield chunk.choices[0].delta.content or ""
+
+
+def get_llm_and_model_from_env() -> tuple[LLM, str]:
+    llm = LLM(
+        api_endpoint=os.environ.get("API_ENDPOINT", "http://localhost:11434"),
+        api_key=os.environ.get("API_KEY", "ollama"),
+        provider=os.environ.get("PROVIDER", "ollama"),
+        model=os.environ.get("MODEL", "AUTODETECT"),
+    )
+    model = os.environ.get("MODEL", "gemma3:12b")
+    return llm, model

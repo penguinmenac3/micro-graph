@@ -1,8 +1,7 @@
 import dotenv
-import os
 from micro_graph import Node, OutputWriter
 from micro_graph.ai.llm_generation import LLMGenerateNode
-from micro_graph.ai.llm import LLM
+from micro_graph.ai.llm import LLM, get_llm_and_model_from_env
 from micro_graph.ai.openai_server import serve
 from micro_graph.ai.types import ChatMessage
 from micro_graph.ai.automatic_refinement_feedback_loop import automatic_refinement_feedback_loop
@@ -137,17 +136,6 @@ def planner_agent(llm: LLM, model: str, max_iterations: int = 5) -> Node:
     return plan
 
 
-def get_llm_and_model() -> tuple[LLM, str]:
-    llm = LLM(
-        api_endpoint=os.environ.get("API_ENDPOINT", "http://localhost:11434"),
-        api_key=os.environ.get("API_KEY", "ollama"),
-        provider=os.environ.get("PROVIDER", "ollama"),
-        model=os.environ.get("MODEL", "AUTODETECT"),
-    )
-    model = os.environ.get("MODEL", "gemma3:12b")
-    return llm, model
-
-
 def _get_query(chat_messages: list[ChatMessage]) -> str:
     query: str = ""
     i = 1
@@ -165,7 +153,7 @@ def _get_query(chat_messages: list[ChatMessage]) -> str:
 
 def main():
     dotenv.load_dotenv()
-    llm, model = get_llm_and_model()
+    llm, model = get_llm_and_model_from_env()
     plan = planner_agent(llm, model=model, max_iterations=3)
 
     async def run_planner(

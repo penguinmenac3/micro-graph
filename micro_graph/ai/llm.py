@@ -11,7 +11,10 @@ class LLMAPI(object):
     def embeddings(self, model: str, input: str | List[str]) -> List[List[float]]:
         raise NotImplementedError("This method should be implemented by subclasses.")
         
-    def chat(self, model: str, messages: List[ChatMessage], max_tokens: int = -1, stream: bool = False) -> str | Generator[str, None, None]:
+    def chat(self, model: str, messages: List[ChatMessage], max_tokens: int = -1) -> str:
+        raise NotImplementedError("This method should be implemented by subclasses.")
+
+    def chat_stream(self, model: str, messages: List[ChatMessage], max_tokens: int = -1) -> Generator[str, None, None]:
         raise NotImplementedError("This method should be implemented by subclasses.")
 
     def get_models(self) -> list[str]:
@@ -44,17 +47,21 @@ class LLM(LLMAPI):
         response = self._llms[model].embeddings.create(input=input, model=model)
         return [d.embedding for d in response.data]
 
-    def chat(self, model: str, messages: List[ChatMessage], max_tokens: int = -1, stream: bool = False) -> str | Generator[str, None, None]:
+    def chat(self, model: str, messages: List[ChatMessage], max_tokens: int = -1) -> str:
         try:            
-            response = self._llms[model].chat.completions.create(model=model, messages=messages, max_tokens=max_tokens, stream=stream)
+            response = self._llms[model].chat.completions.create(model=model, messages=messages, max_tokens=max_tokens, stream=False)
         except openai.NotFoundError as e:
             raise RuntimeError(str(e))
-        if stream:
-            return LLM._stream_wrapper(response)
-        else:
-            if response.choices[0].finish_reason == "error":
-                raise RuntimeError(response.choices[0].message.content)
-            return response.choices[0].message.content or ""
+        if response.choices[0].finish_reason == "error":
+            raise RuntimeError(response.choices[0].message.content)
+        return response.choices[0].message.content or ""
+    
+    def chat_stream(self, model: str, messages: List[ChatMessage], max_tokens: int = -1) -> Generator[str, None, None]:
+        try:            
+            response = self._llms[model].chat.completions.create(model=model, messages=messages, max_tokens=max_tokens, stream=True)
+        except openai.NotFoundError as e:
+            raise RuntimeError(str(e))
+        return LLM._stream_wrapper(response)
 
     def get_models(self) -> list[str]:
         return list(self._llms.keys())

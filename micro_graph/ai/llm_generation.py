@@ -25,25 +25,20 @@ class LLMGenerateNode(Node):
             ChatMessage(role="system", content=self.system_prompt),
             ChatMessage(role="user", content=prompt)
         ]
-        response = self._llm.chat(
-            model=self._model,
-            messages=messages,
-            max_tokens=self._max_tokens,
-            stream=self._output != ""  # only stream if we want to output the response
-        )
-        answer = ""
-        if isinstance(response, str):
-            answer = response
+        if self._output == "":
+            answer: str = self._llm.chat(
+                model=self._model, messages=messages, max_tokens=self._max_tokens
+            )
         else:
+            # only stream if we want to output the response
+            response = self._llm.chat_stream(
+                model=self._model, messages=messages, max_tokens=self._max_tokens
+            )
+            answer = ""
             for chunk in response:
                 answer += chunk
-                if self._output == "default":
-                    output.default(chunk, end="")
-                elif self._output == "thought":
-                    output.thought(chunk, end="")
-                elif self._output != "":
-                    output.detail(self._output, chunk, end="")
-            output.write("\n") # Add a new line after we finished streaming
+                output.write(chunk, message_type=self._output)
+            output.write("\n", message_type=self._output) # Add a new line after we finished streaming
         if self._shared:
             shared[self._field] = answer
             return kwargs
@@ -77,11 +72,7 @@ class LLMDecisionNode(Node):
             model=self._model,
             messages=messages,
             max_tokens=self._max_tokens,
-            stream=False
         )
-        if not isinstance(response, str):
-            raise RuntimeError("Streaming is disabled, so we should always get a stream."
-                               "If this error happens, there is an error in the node implementation.")
         output.thought(f"Decision made: {response}")
         if self._field == "":
             return response
